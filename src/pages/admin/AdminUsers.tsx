@@ -1,0 +1,170 @@
+import { useState } from 'react';
+import { Search, Plus, Minus, Ban, CheckCircle, Eye } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import AdminLayout from '@/components/AdminLayout';
+import { mockUsers, mockActivity, type User } from '@/lib/mockData';
+import { useToast } from '@/hooks/use-toast';
+
+const AdminUsers = () => {
+  const [search, setSearch] = useState('');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [pointsAction, setPointsAction] = useState<'add' | 'deduct' | null>(null);
+  const [pointsAmount, setPointsAmount] = useState('');
+  const [pointsReason, setPointsReason] = useState('');
+  const { toast } = useToast();
+
+  const filtered = mockUsers.filter(u =>
+    u.name.toLowerCase().includes(search.toLowerCase()) || u.phone.includes(search)
+  );
+
+  const handlePointsAction = () => {
+    const pts = parseInt(pointsAmount);
+    if (!pts || !pointsReason) return;
+    toast({
+      title: `${pointsAction === 'add' ? 'Added' : 'Deducted'} ${pts} points`,
+      description: `${selectedUser?.name}: ${pointsReason}`,
+    });
+    setPointsAction(null);
+    setPointsAmount('');
+    setPointsReason('');
+  };
+
+  return (
+    <AdminLayout>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">User Management</h1>
+            <p className="text-sm text-muted-foreground">{mockUsers.length} registered users</p>
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search users..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          </div>
+        </div>
+
+        {/* Users Table */}
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="text-left p-3 font-medium text-muted-foreground">User</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Phone</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Points</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Joined</th>
+                  <th className="text-right p-3 font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((user) => (
+                  <tr key={user.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                          {user.name.charAt(0)}
+                        </div>
+                        <span className="font-medium text-foreground">{user.name}</span>
+                      </div>
+                    </td>
+                    <td className="p-3 text-muted-foreground">{user.phone}</td>
+                    <td className="p-3 font-semibold text-foreground">{user.points.toLocaleString()}</td>
+                    <td className="p-3">
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                        user.status === 'active' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
+                      }`}>
+                        {user.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
+                        {user.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-muted-foreground">{user.joinedAt}</td>
+                    <td className="p-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => setSelectedUser(user)}>
+                          <Eye className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-success" onClick={() => { setSelectedUser(user); setPointsAction('add'); }}>
+                          <Plus className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { setSelectedUser(user); setPointsAction('deduct'); }}>
+                          <Minus className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* User Detail Dialog */}
+      <Dialog open={!!selectedUser && !pointsAction} onOpenChange={() => setSelectedUser(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{selectedUser?.name}</DialogTitle>
+            <DialogDescription>{selectedUser?.phone} • Agent: {selectedUser?.agentCode}</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-3 gap-3 mt-2">
+            <div className="bg-secondary rounded-lg p-3 text-center">
+              <p className="text-lg font-bold text-foreground">{selectedUser?.points.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Current</p>
+            </div>
+            <div className="bg-secondary rounded-lg p-3 text-center">
+              <p className="text-lg font-bold text-success">{selectedUser?.totalEarned.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Earned</p>
+            </div>
+            <div className="bg-secondary rounded-lg p-3 text-center">
+              <p className="text-lg font-bold text-destructive">{selectedUser?.totalRedeemed.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Redeemed</p>
+            </div>
+          </div>
+          <div className="mt-2">
+            <h4 className="text-sm font-medium text-foreground mb-2">Recent Activity</h4>
+            <div className="bg-secondary rounded-lg divide-y divide-border max-h-48 overflow-y-auto">
+              {mockActivity.slice(0, 5).map(a => (
+                <div key={a.id} className="flex items-center justify-between p-2.5 text-sm">
+                  <span className="text-muted-foreground truncate flex-1">{a.description}</span>
+                  <span className={`font-semibold ml-2 ${a.points > 0 ? 'text-success' : 'text-destructive'}`}>
+                    {a.points > 0 ? '+' : ''}{a.points}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <Button size="sm" onClick={() => setPointsAction('add')} className="flex-1 gap-1">
+              <Plus className="w-3.5 h-3.5" /> Add Points
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setPointsAction('deduct')} className="flex-1 gap-1 text-destructive">
+              <Minus className="w-3.5 h-3.5" /> Deduct Points
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Points Action Dialog */}
+      <Dialog open={!!pointsAction} onOpenChange={() => setPointsAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{pointsAction === 'add' ? 'Add' : 'Deduct'} Points</DialogTitle>
+            <DialogDescription>For {selectedUser?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-2">
+            <Input placeholder="Number of points" type="number" value={pointsAmount} onChange={(e) => setPointsAmount(e.target.value)} />
+            <Input placeholder="Reason (e.g., Festival bonus)" value={pointsReason} onChange={(e) => setPointsReason(e.target.value)} />
+            <Button onClick={handlePointsAction} className="w-full">
+              {pointsAction === 'add' ? 'Add Points' : 'Deduct Points'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </AdminLayout>
+  );
+};
+
+export default AdminUsers;
