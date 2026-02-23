@@ -4,19 +4,28 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import AdminLayout from '@/components/AdminLayout';
-import { mockRewardProducts, type RewardProduct } from '@/lib/mockData';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const AdminRewards = () => {
-  const [products, setProducts] = useState<RewardProduct[]>(mockRewardProducts);
   const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<RewardProduct | null>(null);
+  const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState({ name: '', description: '', pointsCost: '', image: '', category: '', stock: '' });
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const openEdit = (p: RewardProduct) => {
+  const { data: products = [] } = useQuery({
+    queryKey: ['admin-reward-products'],
+    queryFn: async () => {
+      const { data } = await supabase.from('reward_products').select('*').order('created_at', { ascending: false });
+      return data || [];
+    },
+  });
+
+  const openEdit = (p: any) => {
     setEditing(p);
-    setForm({ name: p.name, description: p.description, pointsCost: String(p.pointsCost), image: p.image, category: p.category, stock: String(p.stock) });
+    setForm({ name: p.name, description: p.description || '', pointsCost: String(p.points_cost), image: p.image, category: p.category, stock: String(p.stock) });
     setShowForm(true);
   };
 
@@ -26,21 +35,37 @@ const AdminRewards = () => {
     setShowForm(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.pointsCost) return;
     if (editing) {
-      setProducts(products.map(p => p.id === editing.id ? { ...p, ...form, pointsCost: parseInt(form.pointsCost), stock: parseInt(form.stock) } : p));
+      await supabase.from('reward_products').update({
+        name: form.name,
+        description: form.description,
+        points_cost: parseInt(form.pointsCost),
+        image: form.image,
+        category: form.category,
+        stock: parseInt(form.stock) || 0,
+      }).eq('id', editing.id);
       toast({ title: 'Reward updated' });
     } else {
-      setProducts([{ id: `r-${Date.now()}`, ...form, pointsCost: parseInt(form.pointsCost), stock: parseInt(form.stock) }, ...products]);
+      await supabase.from('reward_products').insert({
+        name: form.name,
+        description: form.description,
+        points_cost: parseInt(form.pointsCost),
+        image: form.image || '🎁',
+        category: form.category || 'General',
+        stock: parseInt(form.stock) || 0,
+      });
       toast({ title: 'Reward added' });
     }
     setShowForm(false);
+    queryClient.invalidateQueries({ queryKey: ['admin-reward-products'] });
   };
 
-  const handleDelete = (id: string) => {
-    setProducts(products.filter(p => p.id !== id));
+  const handleDelete = async (id: string) => {
+    await supabase.from('reward_products').delete().eq('id', id);
     toast({ title: 'Reward deleted' });
+    queryClient.invalidateQueries({ queryKey: ['admin-reward-products'] });
   };
 
   return (
@@ -57,7 +82,7 @@ const AdminRewards = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {products.map(p => (
+          {products.map((p: any) => (
             <div key={p.id} className="bg-card rounded-xl border border-border p-4">
               <div className="flex items-start justify-between mb-3">
                 <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center text-2xl">{p.image}</div>
@@ -69,7 +94,7 @@ const AdminRewards = () => {
               <h3 className="font-semibold text-foreground text-sm">{p.name}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>
               <div className="flex items-center justify-between mt-3">
-                <span className="text-sm font-bold text-primary">{p.pointsCost} pts</span>
+                <span className="text-sm font-bold text-primary">{p.points_cost} pts</span>
                 <span className="text-xs text-muted-foreground">{p.stock} in stock</span>
               </div>
             </div>

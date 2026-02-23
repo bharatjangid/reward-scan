@@ -4,32 +4,70 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import AdminLayout from '@/components/AdminLayout';
-import { mockUsers, mockActivity, type User } from '@/lib/mockData';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const AdminUsers = () => {
   const [search, setSearch] = useState('');
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [pointsAction, setPointsAction] = useState<'add' | 'deduct' | null>(null);
   const [pointsAmount, setPointsAmount] = useState('');
   const [pointsReason, setPointsReason] = useState('');
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const filtered = mockUsers.filter(u =>
-    u.name.toLowerCase().includes(search.toLowerCase()) || u.phone.includes(search)
+  const { data: users = [] } = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: async () => {
+      const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      return data || [];
+    },
+  });
+
+  const filtered = users.filter((u: any) =>
+    u.name?.toLowerCase().includes(search.toLowerCase()) || u.phone?.includes(search)
   );
 
-  const handlePointsAction = () => {
+  const handlePointsAction = async () => {
     const pts = parseInt(pointsAmount);
-    if (!pts || !pointsReason) return;
+    if (!pts || !pointsReason || !selectedUser) return;
+
+    const newPoints = pointsAction === 'add' ? selectedUser.points + pts : Math.max(0, selectedUser.points - pts);
+    const newEarned = pointsAction === 'add' ? selectedUser.total_earned + pts : selectedUser.total_earned;
+    const newRedeemed = pointsAction === 'deduct' ? selectedUser.total_redeemed + pts : selectedUser.total_redeemed;
+
+    await supabase.from('profiles').update({
+      points: newPoints,
+      total_earned: newEarned,
+      total_redeemed: newRedeemed,
+    }).eq('id', selectedUser.id);
+
+    await supabase.from('activity_logs').insert({
+      user_id: selectedUser.user_id,
+      type: (pointsAction === 'add' ? 'bonus' : 'deduction') as any,
+      description: pointsReason,
+      points: pointsAction === 'add' ? pts : -pts,
+    });
+
     toast({
       title: `${pointsAction === 'add' ? 'Added' : 'Deducted'} ${pts} points`,
-      description: `${selectedUser?.name}: ${pointsReason}`,
+      description: `${selectedUser.name}: ${pointsReason}`,
     });
     setPointsAction(null);
     setPointsAmount('');
     setPointsReason('');
+    queryClient.invalidateQueries({ queryKey: ['admin-users'] });
   };
+
+  const { data: userActivity = [] } = useQuery({
+    queryKey: ['admin-user-activity', selectedUser?.user_id],
+    queryFn: async () => {
+      const { data } = await supabase.from('activity_logs').select('*').eq('user_id', selectedUser!.user_id).order('created_at', { ascending: false }).limit(5);
+      return data || [];
+    },
+    enabled: !!selectedUser?.user_id,
+  });
 
   return (
     <AdminLayout>
@@ -37,7 +75,7 @@ const AdminUsers = () => {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground">User Management</h1>
-            <p className="text-sm text-muted-foreground">{mockUsers.length} registered users</p>
+            <p className="text-sm text-muted-foreground">{users.length} registered users</p>
           </div>
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -45,7 +83,6 @@ const AdminUsers = () => {
           </div>
         </div>
 
-        {/* Users Table */}
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -60,18 +97,18 @@ const AdminUsers = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map((user) => (
+                {filtered.map((user: any) => (
                   <tr key={user.id} className="hover:bg-muted/30 transition-colors">
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                          {user.name.charAt(0)}
+                          {user.name?.charAt(0) || '?'}
                         </div>
                         <span className="font-medium text-foreground">{user.name}</span>
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground">{user.phone}</td>
-                    <td className="p-3 font-semibold text-foreground">{user.points.toLocaleString()}</td>
+                    <td className="p-3 font-semibold text-foreground">{user.points?.toLocaleString()}</td>
                     <td className="p-3">
                       <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
                         user.status === 'active' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
@@ -80,7 +117,7 @@ const AdminUsers = () => {
                         {user.status}
                       </span>
                     </td>
-                    <td className="p-3 text-muted-foreground">{user.joinedAt}</td>
+                    <td className="p-3 text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button size="sm" variant="ghost" onClick={() => setSelectedUser(user)}>
@@ -102,31 +139,31 @@ const AdminUsers = () => {
         </div>
       </div>
 
-      {/* User Detail Dialog */}
       <Dialog open={!!selectedUser && !pointsAction} onOpenChange={() => setSelectedUser(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{selectedUser?.name}</DialogTitle>
-            <DialogDescription>{selectedUser?.phone} • Agent: {selectedUser?.agentCode}</DialogDescription>
+            <DialogDescription>{selectedUser?.phone} • Agent: {selectedUser?.agent_code}</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 gap-3 mt-2">
             <div className="bg-secondary rounded-lg p-3 text-center">
-              <p className="text-lg font-bold text-foreground">{selectedUser?.points.toLocaleString()}</p>
+              <p className="text-lg font-bold text-foreground">{selectedUser?.points?.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Current</p>
             </div>
             <div className="bg-secondary rounded-lg p-3 text-center">
-              <p className="text-lg font-bold text-success">{selectedUser?.totalEarned.toLocaleString()}</p>
+              <p className="text-lg font-bold text-success">{selectedUser?.total_earned?.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Earned</p>
             </div>
             <div className="bg-secondary rounded-lg p-3 text-center">
-              <p className="text-lg font-bold text-destructive">{selectedUser?.totalRedeemed.toLocaleString()}</p>
+              <p className="text-lg font-bold text-destructive">{selectedUser?.total_redeemed?.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Redeemed</p>
             </div>
           </div>
           <div className="mt-2">
             <h4 className="text-sm font-medium text-foreground mb-2">Recent Activity</h4>
             <div className="bg-secondary rounded-lg divide-y divide-border max-h-48 overflow-y-auto">
-              {mockActivity.slice(0, 5).map(a => (
+              {userActivity.length === 0 && <p className="p-3 text-sm text-muted-foreground">No activity</p>}
+              {userActivity.map((a: any) => (
                 <div key={a.id} className="flex items-center justify-between p-2.5 text-sm">
                   <span className="text-muted-foreground truncate flex-1">{a.description}</span>
                   <span className={`font-semibold ml-2 ${a.points > 0 ? 'text-success' : 'text-destructive'}`}>
@@ -147,7 +184,6 @@ const AdminUsers = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Points Action Dialog */}
       <Dialog open={!!pointsAction} onOpenChange={() => setPointsAction(null)}>
         <DialogContent>
           <DialogHeader>

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 const Signup = () => {
   const [step, setStep] = useState<'details' | 'otp'>('details');
@@ -13,23 +14,79 @@ const Signup = () => {
   const [phone, setPhone] = useState('');
   const [agentCode, setAgentCode] = useState('');
   const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const handleSubmitDetails = () => {
-    if (!name.trim() || phone.length < 10 || !agentCode.trim()) {
+  const formatPhone = (p: string) => {
+    const digits = p.replace(/\D/g, '');
+    if (digits.startsWith('91') && digits.length >= 12) return '+' + digits;
+    if (digits.length === 10) return '+91' + digits;
+    return '+' + digits;
+  };
+
+  const handleSubmitDetails = async () => {
+    if (!name.trim() || phone.replace(/\D/g, '').length < 10 || !agentCode.trim()) {
       toast({ title: 'Missing information', description: 'Please fill all fields', variant: 'destructive' });
+      return;
+    }
+    setLoading(true);
+
+    // Validate agent code
+    const { data: codeData, error: codeError } = await supabase
+      .from('agent_codes')
+      .select('*')
+      .eq('code', agentCode.toUpperCase())
+      .eq('used', false)
+      .maybeSingle();
+
+    if (codeError || !codeData) {
+      setLoading(false);
+      toast({ title: 'Invalid Agent Code', description: 'This code is not valid or already used', variant: 'destructive' });
+      return;
+    }
+
+    // Send OTP
+    const formattedPhone = formatPhone(phone);
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: formattedPhone,
+      options: { data: { name, agent_code: agentCode.toUpperCase() } }
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
       return;
     }
     toast({ title: 'OTP Sent!', description: 'Verify your phone to complete registration' });
     setStep('otp');
   };
 
-  const handleVerifyOTP = () => {
+  const handleVerifyOTP = async () => {
     if (otp.length < 6) {
       toast({ title: 'Invalid OTP', description: 'Please enter the 6-digit OTP', variant: 'destructive' });
       return;
     }
+    setLoading(true);
+    const formattedPhone = formatPhone(phone);
+    const { data, error } = await supabase.auth.verifyOtp({ phone: formattedPhone, token: otp, type: 'sms' });
+    
+    if (error) {
+      setLoading(false);
+      toast({ title: 'Verification failed', description: error.message, variant: 'destructive' });
+      return;
+    }
+
+    // Mark agent code as used
+    if (data.user) {
+      await supabase.from('agent_codes').update({ 
+        used: true, 
+        used_by: data.user.id, 
+        used_by_name: name 
+      }).eq('code', agentCode.toUpperCase());
+    }
+
+    setLoading(false);
     toast({ title: 'Account Created! 🎉', description: 'Welcome to RewardHub!' });
     navigate('/dashboard');
   };
@@ -47,12 +104,7 @@ const Signup = () => {
       </div>
 
       <div className="flex-1 -mt-8 px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-card rounded-2xl shadow-xl p-6 max-w-md mx-auto"
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-card rounded-2xl shadow-xl p-6 max-w-md mx-auto">
           <h2 className="text-xl font-semibold text-card-foreground mb-1">Create Account</h2>
           <p className="text-muted-foreground text-sm mb-6">You need an agent code to register</p>
 
@@ -71,8 +123,8 @@ const Signup = () => {
                 <Input placeholder="Agent Code" value={agentCode} onChange={(e) => setAgentCode(e.target.value)} className="pl-10" />
               </div>
               <p className="text-xs text-muted-foreground">Agent code is a one-time code provided by your agent. Each code can only be used once.</p>
-              <Button onClick={handleSubmitDetails} className="w-full gap-2">
-                Continue <ArrowRight className="w-4 h-4" />
+              <Button onClick={handleSubmitDetails} className="w-full gap-2" disabled={loading}>
+                {loading ? 'Validating...' : 'Continue'} <ArrowRight className="w-4 h-4" />
               </Button>
             </div>
           ) : (
@@ -93,8 +145,8 @@ const Signup = () => {
                   </InputOTPGroup>
                 </InputOTP>
               </div>
-              <Button onClick={handleVerifyOTP} className="w-full gap-2">
-                Verify & Create Account <ArrowRight className="w-4 h-4" />
+              <Button onClick={handleVerifyOTP} className="w-full gap-2" disabled={loading}>
+                {loading ? 'Verifying...' : 'Verify & Create Account'} <ArrowRight className="w-4 h-4" />
               </Button>
               <button onClick={() => setStep('details')} className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors">
                 Go back
@@ -104,9 +156,7 @@ const Signup = () => {
 
           <div className="mt-6 pt-4 border-t text-center text-sm text-muted-foreground">
             Already have an account?{' '}
-            <Link to="/login" className="text-primary font-medium hover:underline">
-              Login
-            </Link>
+            <Link to="/login" className="text-primary font-medium hover:underline">Login</Link>
           </div>
         </motion.div>
       </div>
