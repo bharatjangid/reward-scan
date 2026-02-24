@@ -8,7 +8,6 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { NotFoundException } from '@zxing/library';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -19,8 +18,7 @@ const ScanPage = () => {
   const [loading, setLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [startingCamera, setStartingCamera] = useState(false);
-  const controlsRef = useRef<{ stop: () => void } | null>(null);
+  const scannerRef = useRef<BrowserMultiFormatReader | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
@@ -98,64 +96,67 @@ const ScanPage = () => {
   };
 
   const startCamera = async () => {
-    if (scanning || startingCamera) return;
-
     setCameraError(null);
-    setStartingCamera(true);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Camera not supported on this browser.');
+      return;
+    }
 
     try {
-      const isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      if (!isSecure) {
-        throw new Error('Camera requires HTTPS (or localhost).');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
       }
 
-      const videoEl = videoRef.current;
-      if (!videoEl) {
-        throw new Error('Video element not found.');
-      }
+      setScanning(true);
 
       const codeReader = new BrowserMultiFormatReader();
+      scannerRef.current = codeReader;
 
-      const controls = await codeReader.decodeFromVideoDevice(
-        undefined,
-        videoEl,
-        (result, error) => {
-          if (result) {
-            void redeemCode(result.getText());
-            void stopCamera();
-          }
-          if (error && !(error instanceof NotFoundException)) {
-            // ignore not-found (no QR in frame), log others
-            console.warn('ZXing scan error:', error);
-          }
+      codeReader.decodeFromStream(stream, videoRef.current!, (result) => {
+        if (result) {
+          const text = result.getText();
+          void redeemCode(text);
+          stopCamera();
         }
-      );
-
-      controlsRef.current = controls;
-      setScanning(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to access camera.';
-      setCameraError(`Camera unavailable: ${message}`);
+      });
+    } catch (err: any) {
       setScanning(false);
-    } finally {
-      setStartingCamera(false);
+      if (err.name === 'NotAllowedError') {
+        setCameraError('Camera permission denied. Go to Chrome Settings → Site Settings → Camera → Allow.');
+      } else if (err.name === 'NotReadableError') {
+        setCameraError('Camera in use by another app. Close other camera apps and try again.');
+      } else {
+        setCameraError(`Camera error: ${err.message || 'Unknown'}. Please try again.`);
+      }
     }
   };
 
   const stopCamera = () => {
-    if (controlsRef.current) {
-      controlsRef.current.stop();
-      controlsRef.current = null;
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
     }
+
+    scannerRef.current = null;
     setScanning(false);
-    setStartingCamera(false);
   };
 
   useEffect(() => {
     return () => {
-      if (controlsRef.current) {
-        controlsRef.current.stop();
-        controlsRef.current = null;
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
       }
     };
   }, []);
@@ -190,7 +191,13 @@ const ScanPage = () => {
             </motion.div>
           ) : (
             <>
-              <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" />
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+              />
 
               {!scanning && !cameraError && (
                 <div className="text-center z-10 flex flex-col items-center gap-3">
@@ -209,9 +216,25 @@ const ScanPage = () => {
               )}
 
               {scanning && (
-                <div className="absolute bottom-3 z-10">
-                  <Button onClick={stopCamera} variant="destructive" size="sm">Stop Camera</Button>
-                </div>
+                <>
+                  <div className="absolute inset-0 z-10 pointer-events-none">
+                    <motion.div
+                      className="absolute left-4 right-4 h-0.5 bg-primary/80"
+                      initial={{ y: 16, opacity: 0.6 }}
+                      animate={{ y: 'calc(100% - 16px)', opacity: 1 }}
+                      transition={{ duration: 1.8, repeat: Infinity, repeatType: 'reverse', ease: 'linear' }}
+                    />
+
+                    <div className="absolute top-4 left-4 h-8 w-8 border-l-2 border-t-2 border-primary" />
+                    <div className="absolute top-4 right-4 h-8 w-8 border-r-2 border-t-2 border-primary" />
+                    <div className="absolute bottom-4 left-4 h-8 w-8 border-l-2 border-b-2 border-primary" />
+                    <div className="absolute bottom-4 right-4 h-8 w-8 border-r-2 border-b-2 border-primary" />
+                  </div>
+
+                  <div className="absolute bottom-3 z-20">
+                    <Button onClick={stopCamera} variant="destructive" size="sm">Stop Camera</Button>
+                  </div>
+                </>
               )}
             </>
           )}
