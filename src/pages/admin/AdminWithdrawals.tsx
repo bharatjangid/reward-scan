@@ -79,7 +79,7 @@ const AdminWithdrawals = () => {
                       <tr key={w.id} className="hover:bg-muted/30 transition-colors">
                         <td className="p-3 font-medium text-foreground">{w.user_name}</td>
                         <td className="p-3 text-foreground font-semibold">₹{w.amount}</td>
-                        <td className="p-3 text-muted-foreground">{w.bank_name} • {w.account_number}</td>
+                        <td className="p-3 text-muted-foreground">{w.bank_name} • {w.account_number?.length > 4 ? '****' + w.account_number.slice(-4) : w.account_number}</td>
                         <td className="p-3"><span className={statusBadge(w.status)}>{w.status}</span></td>
                         <td className="p-3 text-muted-foreground">{new Date(w.created_at).toLocaleDateString()}</td>
                         <td className="p-3 text-right">
