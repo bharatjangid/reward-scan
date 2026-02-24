@@ -55,9 +55,14 @@ const Login = () => {
     }
     
     if (data.user) {
-      // Check if user is suspended
+      // Check if profile exists (prevents unregistered users from logging in)
       const { data: profile } = await supabase.from('profiles').select('status').eq('user_id', data.user.id).single();
-      if (profile?.status === 'suspended') {
+      if (!profile) {
+        await supabase.auth.signOut();
+        toast({ title: 'Account not found', description: 'No account exists with this phone number. Please sign up first.', variant: 'destructive' });
+        return;
+      }
+      if (profile.status === 'suspended') {
         await supabase.auth.signOut();
         toast({ title: 'Account Suspended', description: 'Your account has been suspended. Contact support for help.', variant: 'destructive' });
         return;
