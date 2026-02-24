@@ -46,48 +46,24 @@ const ScanPage = () => {
     if (!user || loading) return;
     setLoading(true);
 
-    const { data: qrCode, error } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .eq('code', code.toUpperCase())
-      .eq('status', 'pending')
-      .maybeSingle();
+    const { data, error } = await supabase.rpc('redeem_qr_code', {
+      p_code: code,
+      p_user_id: user.id,
+      p_user_name: profile?.name || '',
+    });
 
-    if (error || !qrCode) {
+    if (error || !data || !data[0]?.success) {
       setScanResult('error');
-      toast({ title: 'Invalid QR Code', description: 'This code is not valid or already used', variant: 'destructive' });
+      toast({ title: 'Invalid QR Code', description: data?.[0]?.message || 'This code is not valid or already used', variant: 'destructive' });
       setLoading(false);
       setTimeout(() => setScanResult(null), 3000);
       return;
     }
 
-    await supabase.from('qr_codes').update({
-      status: 'redeemed' as any,
-      redeemed_by: user.id,
-      redeemed_by_name: profile?.name,
-      redeemed_at: new Date().toISOString(),
-    }).eq('id', qrCode.id);
-
-    const { data: batchData } = await supabase.from('qr_batches').select('redeemed_count').eq('id', qrCode.batch_id).maybeSingle();
-    if (batchData) {
-      await supabase.from('qr_batches').update({ redeemed_count: (batchData.redeemed_count || 0) + 1 }).eq('id', qrCode.batch_id);
-    }
-
-    await supabase.from('profiles').update({
-      points: (profile?.points || 0) + qrCode.points,
-      total_earned: (profile?.total_earned || 0) + qrCode.points,
-    }).eq('user_id', user.id);
-
-    await supabase.from('activity_logs').insert({
-      user_id: user.id,
-      type: 'scan' as any,
-      description: `Scanned QR from ${qrCode.product_name}`,
-      points: qrCode.points,
-    });
-
-    setEarnedPoints(qrCode.points);
+    const result = data[0];
+    setEarnedPoints(result.points);
     setScanResult('success');
-    toast({ title: `+${qrCode.points} Points Added!`, description: 'QR code scanned successfully' });
+    toast({ title: `+${result.points} Points Added!`, description: 'QR code scanned successfully' });
     await refreshProfile();
     await fetchScanHistory();
     setLoading(false);

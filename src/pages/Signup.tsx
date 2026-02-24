@@ -32,15 +32,11 @@ const Signup = () => {
     }
     setLoading(true);
 
-    // Validate agent code
-    const { data: codeData, error: codeError } = await supabase
-      .from('agent_codes')
-      .select('*')
-      .eq('code', agentCode.toUpperCase())
-      .eq('used', false)
-      .maybeSingle();
+    // Validate agent code via secure RPC (prevents enumeration)
+    const { data: isValid, error: codeError } = await supabase
+      .rpc('validate_agent_code', { code_input: agentCode });
 
-    if (codeError || !codeData) {
+    if (codeError || !isValid) {
       setLoading(false);
       toast({ title: 'Invalid Agent Code', description: 'This code is not valid or already used', variant: 'destructive' });
       return;

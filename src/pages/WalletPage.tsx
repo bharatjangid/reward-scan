@@ -109,7 +109,7 @@ const WalletPage = () => {
                 {statusIcons[w.status]}
                 <div className="flex-1">
                   <p className="text-sm font-medium text-foreground">₹{w.amount}</p>
-                  <p className="text-xs text-muted-foreground">{w.bank_name} • {w.account_number} • {new Date(w.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">{w.bank_name} • {w.account_number?.length > 4 ? '****' + w.account_number.slice(-4) : w.account_number} • {new Date(w.created_at).toLocaleDateString()}</p>
                 </div>
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                   w.status === 'approved' ? 'bg-success/10 text-success' :

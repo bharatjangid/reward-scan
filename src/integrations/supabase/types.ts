@@ -352,6 +352,16 @@ export type Database = {
         }
         Returns: boolean
       }
+      redeem_qr_code: {
+        Args: { p_code: string; p_user_id: string; p_user_name: string }
+        Returns: {
+          message: string
+          points: number
+          product_name: string
+          success: boolean
+        }[]
+      }
+      validate_agent_code: { Args: { code_input: string }; Returns: boolean }
     }
     Enums: {
       activity_type: "scan" | "redeem" | "withdraw" | "bonus" | "deduction"
