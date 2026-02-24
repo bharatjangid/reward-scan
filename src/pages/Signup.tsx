@@ -73,13 +73,39 @@ const Signup = () => {
       return;
     }
 
-    // Mark agent code as used
     if (data.user) {
+      // Mark agent code as used
       await supabase.from('agent_codes').update({ 
         used: true, 
         used_by: data.user.id, 
         used_by_name: name 
       }).eq('code', agentCode.toUpperCase());
+
+      // Upsert profile (handles ghost accounts that exist without agent_code)
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', data.user.id)
+        .maybeSingle();
+
+      if (existingProfile) {
+        await supabase.from('profiles').update({
+          name,
+          agent_code: agentCode.toUpperCase(),
+          phone: phone.replace(/\D/g, ''),
+        }).eq('user_id', data.user.id);
+      }
+
+      // Ensure user role exists
+      const { data: existingRole } = await supabase
+        .from('user_roles')
+        .select('id')
+        .eq('user_id', data.user.id)
+        .maybeSingle();
+
+      if (!existingRole) {
+        await supabase.from('user_roles').insert({ user_id: data.user.id, role: 'user' });
+      }
     }
 
     setLoading(false);
