@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import jsPDF from 'jspdf';
+import QRCode from 'qrcode';
 
 const AdminQR = () => {
   const [showCreate, setShowCreate] = useState(false);
@@ -106,6 +107,11 @@ const AdminQR = () => {
     const cols = Math.floor((pageDims.w - 2 * margin + gap) / (size + gap));
     const rows = Math.floor((pageDims.h - 2 * margin + gap) / (size + gap + 8));
 
+    // Generate all QR code data URLs in parallel
+    const qrDataUrls = await Promise.all(
+      codes.map((code: any) => QRCode.toDataURL(code.code, { width: 256, margin: 1 }))
+    );
+
     codes.forEach((code: any, i: number) => {
       const pageIndex = Math.floor(i / (cols * rows));
       const posInPage = i % (cols * rows);
@@ -117,8 +123,7 @@ const AdminQR = () => {
       const x = margin + col * (size + gap);
       const y = margin + row * (size + gap + 8);
 
-      pdf.setDrawColor(0);
-      pdf.rect(x, y, size, size);
+      pdf.addImage(qrDataUrls[i], 'PNG', x, y, size, size);
       pdf.setFontSize(6);
       pdf.text(code.code, x + size / 2, y + size + 4, { align: 'center' });
       pdf.text(`${code.points} pts`, x + size / 2, y + size + 7, { align: 'center' });
