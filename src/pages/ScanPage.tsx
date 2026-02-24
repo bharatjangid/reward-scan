@@ -7,7 +7,8 @@ import UserLayout from '@/components/UserLayout';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Html5Qrcode } from 'html5-qrcode';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { NotFoundException } from '@zxing/library';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -19,7 +20,8 @@ const ScanPage = () => {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [startingCamera, setStartingCamera] = useState(false);
-  const html5QrRef = useRef<Html5Qrcode | null>(null);
+  const controlsRef = useRef<{ stop: () => void } | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
   const [scanHistory, setScanHistory] = useState<any[]>([]);
@@ -107,96 +109,54 @@ const ScanPage = () => {
         throw new Error('Camera requires HTTPS (or localhost).');
       }
 
-      if (html5QrRef.current) {
-        try {
-          await html5QrRef.current.stop();
-        } catch {}
-        try {
-          await html5QrRef.current.clear();
-        } catch {}
-        html5QrRef.current = null;
+      const videoEl = videoRef.current;
+      if (!videoEl) {
+        throw new Error('Video element not found.');
       }
 
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const codeReader = new BrowserMultiFormatReader();
 
-      const scannerContainer = document.getElementById('qr-reader');
-      if (!scannerContainer) {
-        throw new Error('Scanner container not found.');
-      }
-
-      const html5Qr = new Html5Qrcode('qr-reader');
-      html5QrRef.current = html5Qr;
-
-      const onScanSuccess = (decodedText: string) => {
-        void redeemCode(decodedText);
-        void stopCamera();
-      };
-
-      try {
-        await html5Qr.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 220, height: 220 } },
-          onScanSuccess,
-          () => {}
-        );
-      } catch {
-        const cameras = await Html5Qrcode.getCameras();
-        if (!cameras.length) {
-          throw new Error('No camera found on this device.');
+      const controls = await codeReader.decodeFromVideoDevice(
+        undefined,
+        videoEl,
+        (result, error) => {
+          if (result) {
+            void redeemCode(result.getText());
+            void stopCamera();
+          }
+          if (error && !(error instanceof NotFoundException)) {
+            // ignore not-found (no QR in frame), log others
+            console.warn('ZXing scan error:', error);
+          }
         }
+      );
 
-        const backCamera = cameras.find((cam) => /back|rear|environment/i.test(cam.label)) ?? cameras[0];
-
-        await html5Qr.start(
-          { deviceId: { exact: backCamera.id } },
-          { fps: 10, qrbox: { width: 220, height: 220 } },
-          onScanSuccess,
-          () => {}
-        );
-      }
-
+      controlsRef.current = controls;
       setScanning(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to access camera.';
       setCameraError(`Camera unavailable: ${message}`);
-      if (html5QrRef.current) {
-        try {
-          await html5QrRef.current.clear();
-        } catch {}
-        html5QrRef.current = null;
-      }
       setScanning(false);
     } finally {
       setStartingCamera(false);
     }
   };
 
-  const stopCamera = async () => {
-    if (!html5QrRef.current) return;
-
-    try {
-      await html5QrRef.current.stop();
-    } catch {}
-
-    try {
-      await html5QrRef.current.clear();
-    } catch {}
-
-    html5QrRef.current = null;
+  const stopCamera = () => {
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
+    }
     setScanning(false);
     setStartingCamera(false);
   };
 
   useEffect(() => {
     return () => {
-      if (!html5QrRef.current) return;
-
-      html5QrRef.current.stop().catch(() => {}).finally(() => {
-        try {
-          html5QrRef.current?.clear();
-        } catch {}
-        html5QrRef.current = null;
-      });
+      if (controlsRef.current) {
+        controlsRef.current.stop();
+        controlsRef.current = null;
+      }
     };
   }, []);
 
@@ -230,7 +190,7 @@ const ScanPage = () => {
             </motion.div>
           ) : (
             <>
-              <div id="qr-reader" className="absolute inset-0" />
+              <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" />
 
               {!scanning && !cameraError && (
                 <div className="text-center z-10 flex flex-col items-center gap-3">
