@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ScanLine, Camera, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ScanLine, Camera, CheckCircle, XCircle, AlertCircle, History, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import UserLayout from '@/components/UserLayout';
@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Html5Qrcode } from 'html5-qrcode';
+import { Badge } from '@/components/ui/badge';
+import { formatDistanceToNow } from 'date-fns';
 
 const ScanPage = () => {
   const [manualCode, setManualCode] = useState('');
@@ -19,6 +21,25 @@ const ScanPage = () => {
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
+  const [scanHistory, setScanHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const fetchScanHistory = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('activity_logs')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('type', 'scan')
+      .order('created_at', { ascending: false })
+      .limit(10);
+    setScanHistory(data || []);
+    setHistoryLoading(false);
+  }, [user]);
+
+  useEffect(() => {
+    fetchScanHistory();
+  }, [fetchScanHistory]);
 
   const redeemCode = async (code: string) => {
     if (!user || loading) return;
@@ -67,6 +88,7 @@ const ScanPage = () => {
     setScanResult('success');
     toast({ title: `+${qrCode.points} Points Added!`, description: 'QR code scanned successfully' });
     await refreshProfile();
+    await fetchScanHistory();
     setLoading(false);
     setTimeout(() => setScanResult(null), 3000);
     setManualCode('');
@@ -182,6 +204,45 @@ const ScanPage = () => {
               <ScanLine className="w-4 h-4" />
             </Button>
           </div>
+        </div>
+
+        {/* Scan History */}
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <History className="w-4 h-4 text-muted-foreground" />
+            <p className="text-sm font-medium text-foreground">Recent Scans</p>
+          </div>
+          {historyLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-12 bg-muted/50 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : scanHistory.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No scans yet. Scan a QR code to get started!</p>
+          ) : (
+            <div className="space-y-3">
+              {scanHistory.map((log) => (
+                <motion.div
+                  key={log.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{log.description}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="secondary" className="ml-2 shrink-0">+{log.points}</Badge>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </UserLayout>
