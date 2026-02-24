@@ -27,9 +27,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string): Promise<boolean> => {
     const { data } = await supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+    // Block users without a valid profile or without an agent_code (ghost accounts)
+    if (!data || !data.agent_code) {
+      await supabase.auth.signOut();
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setIsAdmin(false);
+      return false;
+    }
+    if (data.status === 'suspended') {
+      await supabase.auth.signOut();
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setIsAdmin(false);
+      return false;
+    }
     setProfile(data);
+    return true;
   };
 
   const fetchRole = async (userId: string) => {
@@ -50,8 +68,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (session?.user) {
         // Use setTimeout to avoid Supabase auth deadlock
         setTimeout(async () => {
-          await fetchProfile(session.user.id);
-          await fetchRole(session.user.id);
+          const valid = await fetchProfile(session.user.id);
+          if (valid) {
+            await fetchRole(session.user.id);
+          }
           setLoading(false);
         }, 0);
       } else {
@@ -65,7 +85,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id).then(() => fetchRole(session.user.id).then(() => setLoading(false)));
+        fetchProfile(session.user.id).then((valid) => {
+          if (valid) {
+            fetchRole(session.user.id).then(() => setLoading(false));
+          } else {
+            setLoading(false);
+          }
+        });
       } else {
         setLoading(false);
       }
