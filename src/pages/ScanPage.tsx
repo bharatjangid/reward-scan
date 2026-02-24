@@ -77,20 +77,51 @@ const ScanPage = () => {
   };
 
   const startCamera = async () => {
+    if (scannerRef.current?.isScanning) return;
+
+    setCameraActive(true);
+
+    // Let React render the qr-reader container before starting camera stream
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
     try {
       const scanner = new Html5Qrcode('qr-reader');
       scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 200, height: 200 } },
-        (decodedText) => {
-          redeemCode(decodedText);
-        },
-        () => {}
-      );
-      setCameraActive(true);
-    } catch (err) {
-      toast({ title: 'Camera Error', description: 'Could not access camera. Please use manual entry.', variant: 'destructive' });
+
+      const config = { fps: 10, qrbox: { width: 200, height: 200 } };
+
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          config,
+          (decodedText) => {
+            redeemCode(decodedText);
+          },
+          () => {}
+        );
+      } catch {
+        const cameras = await Html5Qrcode.getCameras();
+        const rearCamera = cameras.find((camera) => /back|rear|environment/i.test(camera.label));
+        const fallbackCameraId = rearCamera?.id ?? cameras[0]?.id;
+
+        if (!fallbackCameraId) throw new Error('No camera found');
+
+        await scanner.start(
+          fallbackCameraId,
+          config,
+          (decodedText) => {
+            redeemCode(decodedText);
+          },
+          () => {}
+        );
+      }
+    } catch {
+      setCameraActive(false);
+      toast({
+        title: 'Camera Error',
+        description: 'Could not access camera. Please allow camera permission or use manual entry.',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -98,6 +129,8 @@ const ScanPage = () => {
     if (scannerRef.current?.isScanning) {
       await scannerRef.current.stop();
     }
+    scannerRef.current?.clear();
+    scannerRef.current = null;
     setCameraActive(false);
   };
 
@@ -106,6 +139,8 @@ const ScanPage = () => {
       if (scannerRef.current?.isScanning) {
         scannerRef.current.stop().catch(() => {});
       }
+      scannerRef.current?.clear();
+      scannerRef.current = null;
     };
   }, []);
 
