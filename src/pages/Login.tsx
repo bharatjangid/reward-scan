@@ -30,7 +30,7 @@ const Login = () => {
     }
     setLoading(true);
     const formattedPhone = formatPhone(phone);
-    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone });
+    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone, options: { shouldCreateUser: false } });
     setLoading(false);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
