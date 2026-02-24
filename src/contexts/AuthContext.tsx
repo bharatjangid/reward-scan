@@ -27,10 +27,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
   const fetchProfile = async (userId: string): Promise<boolean> => {
-    const { data } = await supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+    let profileData: any | null = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data } = await supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+      if (data) {
+        profileData = data;
+        break;
+      }
+      if (attempt < 4) await wait(300);
+    }
+
     // Block users without a valid profile or without an agent_code (ghost accounts)
-    if (!data || !data.agent_code) {
+    if (!profileData || !profileData.agent_code) {
       await supabase.auth.signOut();
       setSession(null);
       setUser(null);
@@ -38,7 +50,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAdmin(false);
       return false;
     }
-    if (data.status === 'suspended') {
+    if (profileData.status === 'suspended') {
       await supabase.auth.signOut();
       setSession(null);
       setUser(null);
@@ -46,7 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAdmin(false);
       return false;
     }
-    setProfile(data);
+    setProfile(profileData);
     return true;
   };
 

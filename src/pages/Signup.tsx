@@ -82,6 +82,9 @@ const Signup = () => {
       }).eq('code', agentCode.toUpperCase());
 
       // Upsert profile (handles ghost accounts that exist without agent_code)
+      const normalizedPhone = phone.replace(/\D/g, '');
+      const normalizedAgentCode = agentCode.toUpperCase();
+
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('id')
@@ -91,9 +94,23 @@ const Signup = () => {
       if (existingProfile) {
         await supabase.from('profiles').update({
           name,
-          agent_code: agentCode.toUpperCase(),
-          phone: phone.replace(/\D/g, ''),
+          agent_code: normalizedAgentCode,
+          phone: normalizedPhone,
         }).eq('user_id', data.user.id);
+      } else {
+        const { error: profileInsertError } = await supabase.from('profiles').insert({
+          user_id: data.user.id,
+          name,
+          agent_code: normalizedAgentCode,
+          phone: normalizedPhone,
+        });
+
+        if (profileInsertError) {
+          setLoading(false);
+          await supabase.auth.signOut();
+          toast({ title: 'Signup failed', description: profileInsertError.message, variant: 'destructive' });
+          return;
+        }
       }
 
       // Ensure user role exists
@@ -104,7 +121,13 @@ const Signup = () => {
         .maybeSingle();
 
       if (!existingRole) {
-        await supabase.from('user_roles').insert({ user_id: data.user.id, role: 'user' });
+        const { error: roleError } = await supabase.from('user_roles').insert({ user_id: data.user.id, role: 'user' });
+        if (roleError) {
+          setLoading(false);
+          await supabase.auth.signOut();
+          toast({ title: 'Signup failed', description: roleError.message, variant: 'destructive' });
+          return;
+        }
       }
     }
 
