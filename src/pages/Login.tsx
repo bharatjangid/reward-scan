@@ -54,8 +54,16 @@ const Login = () => {
       return;
     }
     
-    // Check if user is admin
     if (data.user) {
+      // Check if user is suspended
+      const { data: profile } = await supabase.from('profiles').select('status').eq('user_id', data.user.id).single();
+      if (profile?.status === 'suspended') {
+        await supabase.auth.signOut();
+        toast({ title: 'Account Suspended', description: 'Your account has been suspended. Contact support for help.', variant: 'destructive' });
+        return;
+      }
+
+      // Check if user is admin
       const { data: roles } = await supabase.from('user_roles').select('role').eq('user_id', data.user.id);
       const isAdmin = roles?.some(r => r.role === 'admin');
       toast({ title: 'Welcome back!', description: 'Login successful' });
