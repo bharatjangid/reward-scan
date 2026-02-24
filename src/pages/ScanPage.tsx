@@ -18,6 +18,7 @@ const ScanPage = () => {
   const [loading, setLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [startingCamera, setStartingCamera] = useState(false);
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
@@ -95,42 +96,107 @@ const ScanPage = () => {
   };
 
   const startCamera = async () => {
+    if (scanning || startingCamera) return;
+
     setCameraError(null);
+    setStartingCamera(true);
+
     try {
+      const isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isSecure) {
+        throw new Error('Camera requires HTTPS (or localhost).');
+      }
+
+      if (html5QrRef.current) {
+        try {
+          await html5QrRef.current.stop();
+        } catch {}
+        try {
+          await html5QrRef.current.clear();
+        } catch {}
+        html5QrRef.current = null;
+      }
+
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      const scannerContainer = document.getElementById('qr-reader');
+      if (!scannerContainer) {
+        throw new Error('Scanner container not found.');
+      }
+
       const html5Qr = new Html5Qrcode('qr-reader');
       html5QrRef.current = html5Qr;
 
-      await html5Qr.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decodedText) => {
-          redeemCode(decodedText);
-          stopCamera();
-        },
-        () => {}
-      );
+      const onScanSuccess = (decodedText: string) => {
+        void redeemCode(decodedText);
+        void stopCamera();
+      };
+
+      try {
+        await html5Qr.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          onScanSuccess,
+          () => {}
+        );
+      } catch {
+        const cameras = await Html5Qrcode.getCameras();
+        if (!cameras.length) {
+          throw new Error('No camera found on this device.');
+        }
+
+        const backCamera = cameras.find((cam) => /back|rear|environment/i.test(cam.label)) ?? cameras[0];
+
+        await html5Qr.start(
+          { deviceId: { exact: backCamera.id } },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          onScanSuccess,
+          () => {}
+        );
+      }
+
       setScanning(true);
-    } catch {
-      setCameraError('Camera access denied. Please allow camera permissions and try again.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to access camera.';
+      setCameraError(`Camera unavailable: ${message}`);
+      if (html5QrRef.current) {
+        try {
+          await html5QrRef.current.clear();
+        } catch {}
+        html5QrRef.current = null;
+      }
+      setScanning(false);
+    } finally {
+      setStartingCamera(false);
     }
   };
 
   const stopCamera = async () => {
-    if (html5QrRef.current) {
-      try {
-        await html5QrRef.current.stop();
-      } catch {}
-      html5QrRef.current = null;
-      setScanning(false);
-    }
+    if (!html5QrRef.current) return;
+
+    try {
+      await html5QrRef.current.stop();
+    } catch {}
+
+    try {
+      await html5QrRef.current.clear();
+    } catch {}
+
+    html5QrRef.current = null;
+    setScanning(false);
+    setStartingCamera(false);
   };
 
   useEffect(() => {
     return () => {
-      if (html5QrRef.current) {
-        html5QrRef.current.stop().catch(() => {});
+      if (!html5QrRef.current) return;
+
+      html5QrRef.current.stop().catch(() => {}).finally(() => {
+        try {
+          html5QrRef.current?.clear();
+        } catch {}
         html5QrRef.current = null;
-      }
+      });
     };
   }, []);
 
