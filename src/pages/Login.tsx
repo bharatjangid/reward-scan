@@ -24,11 +24,28 @@ const Login = () => {
   };
 
   const handleSendOTP = async () => {
-    if (phone.replace(/\D/g, '').length < 10) {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 10) {
       toast({ title: 'Invalid phone number', description: 'Please enter a valid phone number', variant: 'destructive' });
       return;
     }
     setLoading(true);
+
+    // Check if a profile exists for this phone number before sending OTP
+    const normalizedPhone = digits.length === 10 ? digits : digits.startsWith('91') ? digits.slice(2) : digits;
+    const { data: profileExists } = await supabase
+      .from('profiles')
+      .select('id')
+      .or(`phone.eq.${normalizedPhone},phone.eq.91${normalizedPhone},phone.eq.+91${normalizedPhone}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (!profileExists) {
+      setLoading(false);
+      toast({ title: 'Account not found', description: 'No account exists with this phone number. Please sign up first.', variant: 'destructive' });
+      return;
+    }
+
     const formattedPhone = formatPhone(phone);
     const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone, options: { shouldCreateUser: false } });
     setLoading(false);
