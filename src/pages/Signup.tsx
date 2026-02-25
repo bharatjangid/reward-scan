@@ -32,11 +32,15 @@ const Signup = () => {
     }
     setLoading(true);
 
-    // Validate agent code via secure RPC (prevents enumeration)
-    const { data: isValid, error: codeError } = await supabase
-      .rpc('validate_agent_code', { code_input: agentCode });
+    // Validate agent code
+    const { data: codeData, error: codeError } = await supabase
+      .from('agent_codes')
+      .select('*')
+      .eq('code', agentCode.toUpperCase())
+      .eq('used', false)
+      .maybeSingle();
 
-    if (codeError || !isValid) {
+    if (codeError || !codeData) {
       setLoading(false);
       toast({ title: 'Invalid Agent Code', description: 'This code is not valid or already used', variant: 'destructive' });
       return;
@@ -73,62 +77,13 @@ const Signup = () => {
       return;
     }
 
+    // Mark agent code as used
     if (data.user) {
-      // Mark agent code as used
       await supabase.from('agent_codes').update({ 
         used: true, 
         used_by: data.user.id, 
         used_by_name: name 
       }).eq('code', agentCode.toUpperCase());
-
-      // Upsert profile (handles ghost accounts that exist without agent_code)
-      const normalizedPhone = phone.replace(/\D/g, '');
-      const normalizedAgentCode = agentCode.toUpperCase();
-
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('user_id', data.user.id)
-        .maybeSingle();
-
-      if (existingProfile) {
-        await supabase.from('profiles').update({
-          name,
-          agent_code: normalizedAgentCode,
-          phone: normalizedPhone,
-        }).eq('user_id', data.user.id);
-      } else {
-        const { error: profileInsertError } = await supabase.from('profiles').insert({
-          user_id: data.user.id,
-          name,
-          agent_code: normalizedAgentCode,
-          phone: normalizedPhone,
-        });
-
-        if (profileInsertError) {
-          setLoading(false);
-          await supabase.auth.signOut();
-          toast({ title: 'Signup failed', description: profileInsertError.message, variant: 'destructive' });
-          return;
-        }
-      }
-
-      // Ensure user role exists
-      const { data: existingRole } = await supabase
-        .from('user_roles')
-        .select('id')
-        .eq('user_id', data.user.id)
-        .maybeSingle();
-
-      if (!existingRole) {
-        const { error: roleError } = await supabase.from('user_roles').insert({ user_id: data.user.id, role: 'user' });
-        if (roleError) {
-          setLoading(false);
-          await supabase.auth.signOut();
-          toast({ title: 'Signup failed', description: roleError.message, variant: 'destructive' });
-          return;
-        }
-      }
     }
 
     setLoading(false);

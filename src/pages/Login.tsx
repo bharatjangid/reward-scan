@@ -24,30 +24,13 @@ const Login = () => {
   };
 
   const handleSendOTP = async () => {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length < 10) {
+    if (phone.replace(/\D/g, '').length < 10) {
       toast({ title: 'Invalid phone number', description: 'Please enter a valid phone number', variant: 'destructive' });
       return;
     }
     setLoading(true);
-
-    // Check if a profile exists for this phone number before sending OTP
-    const normalizedPhone = digits.length === 10 ? digits : digits.startsWith('91') ? digits.slice(2) : digits;
-    const { data: profileExists } = await supabase
-      .from('profiles')
-      .select('id')
-      .or(`phone.eq.${normalizedPhone},phone.eq.91${normalizedPhone},phone.eq.+91${normalizedPhone}`)
-      .limit(1)
-      .maybeSingle();
-
-    if (!profileExists) {
-      setLoading(false);
-      toast({ title: 'Account not found', description: 'No account exists with this phone number. Please sign up first.', variant: 'destructive' });
-      return;
-    }
-
     const formattedPhone = formatPhone(phone);
-    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone, options: { shouldCreateUser: false } });
+    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone });
     setLoading(false);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -71,21 +54,8 @@ const Login = () => {
       return;
     }
     
+    // Check if user is admin
     if (data.user) {
-      // Check if profile exists (prevents unregistered users from logging in)
-      const { data: profile } = await supabase.from('profiles').select('status, agent_code, name').eq('user_id', data.user.id).single();
-      if (!profile || !profile.agent_code) {
-        await supabase.auth.signOut();
-        toast({ title: 'Account not found', description: 'No account exists with this phone number. Please sign up first.', variant: 'destructive' });
-        return;
-      }
-      if (profile.status === 'suspended') {
-        await supabase.auth.signOut();
-        toast({ title: 'Account Suspended', description: 'Your account has been suspended. Contact support for help.', variant: 'destructive' });
-        return;
-      }
-
-      // Check if user is admin
       const { data: roles } = await supabase.from('user_roles').select('role').eq('user_id', data.user.id);
       const isAdmin = roles?.some(r => r.role === 'admin');
       toast({ title: 'Welcome back!', description: 'Login successful' });
